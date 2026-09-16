@@ -9,23 +9,45 @@ OM2 is a graph built from the company's connected data. It finds facts that are 
 
 For the full tool-selection guide (completeness/pagination signals, search modes, anti-loop rules), retrieve the `mcp-om2-usage` skill from Coworker with `skill_retrieve`.
 
-## Pick the right tool
+## Entry routing — pick the right tool by question shape
 
-- **`om2_search`** — default entry point. Semantic search with graph expansion. Best for "what do we know about X?", "what happened with Y?", "summarize Z". Keep each query focused on ONE concept.
-- **`om2_entity_search`** — find a specific known entity (person, project, account) by name.
-- **`om2_entity_brief`** — concise briefing on one entity before going deeper.
-- **`om2_explore_neighbors` / `om2_find_path`** — see what an entity connects to, or how two entities relate.
-- **`om2_person_network`** — a person's working network.
-- **`om2_entity_timeline` / `om2_recent_activity`** — how something evolved over time / what's happened lately.
-- **`om2_themes`** — recurring topics and narrative lanes across the graph.
-- **`om2_source_trace`** — recover the source documents/messages behind a fact (use to cite or verify).
+- **What happened / what do we know** → `om2_search` (set `time_start` for "recent", "yesterday", "this week")
+- **Named account, deal, or contact** → `om2_entity_brief`
+- **A person (including "me" / "my")** → `om2_search` with the person's NAME in the query plus a time window, never the literal "I"; exhaustive per-person record → `om2_identify_people` then `om2_user_activity`; collaborators → `om2_person_network`
+- **"All / every / list / how many"** → `om2_enumerate` (page until `has_more=false`); enumerate before counting
+- **"What's new" with no topic** → `om2_recent_activity`
+- **One specific fact** → `om2_atomic_data`
+- **Full history of one entity** → `om2_entity_timeline`
+- **One node's full profile** → `om2_node_details`
+- **Provenance / source documents** → `om2_source_trace` / `om2_document_explore` / `om2_report_explore`
+- **Anything else** → `om2_graph_schema` then `om2_cypher` (~10s; try search/enumerate first)
 
-## Procedure
+### Live-data branch
 
-1. Start broad with `om2_search`. Read the connected facts it returns.
-2. Narrow with `om2_entity_search` / `om2_entity_brief` on the specific entities that matter.
-3. Expand relationships with `om2_explore_neighbors` or `om2_find_path` when the question is relational.
-4. Always be ready to back a claim with `om2_source_trace`.
+Questions about "current status", "right now", "today", "open tickets", or "most recent X": **ONE** `om2_search` to orient (learn what entities exist and what the graph knows), then the owning connector tool for the live fact itself. Always.
+
+## Reading the envelope — is one query enough?
+
+Every OM2 result carries an envelope: `status`, `resolution`, `retrieval`, `warnings`.
+
+- **`resolution.entities`** — what the query anchored to. Trust these over fuzzy matches.
+- **`retrieval.has_more`** — `true` means top_k filled. Narrow (time window, source filter) or switch to `om2_enumerate`. Never report a `has_more=true` result as "complete".
+- **`retrieval.activated_themes`** — sparse but relevant themes? Retry with `search_mode=theme_deep`.
+- **`similarity`** on results — all low values means the graph has nothing on the query. Stop and try a connector.
+- **`suggestions`** (on empty results) — nearest entities, matched themes, available connectors, and a hint about what to try next. Read these instead of rephrasing and retrying.
+
+## When you've searched enough — stopping rules
+
+- **Max 3 OM2 calls per sub-question.** If three queries on the same topic return nothing useful, the graph doesn't have it.
+- **No near-duplicate re-queries.** Rephrasing a query that returned zero results is almost never productive — 104 such retries in benchmarking produced zero new data. Change the tool or the approach instead.
+- **No dead-end graph hops.** Never call `om2_node_details` or `om2_source_trace` for IDs you won't reference again in your answer.
+
+## When to go to connector tools
+
+- **After 1 empty/thin OM2 result** on live-data or exact-aggregate questions.
+- **After 2 empty results** on anything else.
+- **Immediately** for JQL/SQL/CRM report shapes (the source computes these, not the graph).
+- **Always name the source** you used ("according to Jira", "from the CRM").
 
 ## If OM2 tools are absent
 
